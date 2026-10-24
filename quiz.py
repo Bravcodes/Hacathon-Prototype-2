@@ -62,14 +62,15 @@ PRIORITY_FACTORS = {
     "Helps students like me succeed": "value_added",
 }
 BASE_WEIGHTS = {"affordability": 1, "graduation": 1, "earnings": 1, "low_debt": 1,
-                "prestige": 1, "value_added": 1, "mobility": 0}
+                "prestige": 1, "value_added": 1, "mobility": 0, "admission": 0}
+SCORE_WEIGHT = 2  # "Admission chances" counts double when the student gives an SAT/ACT
 
 # Big text and big buttons. Injected only while the quiz is on screen.
 QUIZ_CSS = """
 <style>
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display: none;}
 .quiz-title {font-size: 2.4rem; font-weight: 700; line-height: 1.2; margin: 1.5rem 0 0.5rem;}
-.quiz-note {font-size: 1.15rem; color: #52514e; margin-bottom: 1rem;}
+.quiz-note {font-size: 1.15rem; opacity: 0.75; margin-bottom: 1rem;}
 div[data-testid="stButton"] button {min-height: 3.6rem; border-radius: 0.8rem;}
 div[data-testid="stButton"] button p {font-size: 1.25rem;}
 </style>
@@ -82,6 +83,8 @@ def answers_to_profile(a):
     weights = dict(BASE_WEIGHTS)
     for p in a["priorities"]:
         weights[PRIORITY_FACTORS[p]] *= 2
+    if a.get("test") in ("SAT", "ACT") and a.get("test_score"):
+        weights["admission"] = SCORE_WEIGHT
     return {
         "major": None if a["major"] in (None, "Undecided") else a["major"],
         "income": income,  # None = "Not sure" -> average net price

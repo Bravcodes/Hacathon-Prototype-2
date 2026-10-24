@@ -42,13 +42,16 @@ FACTORS = {
     "mobility": ("pell_grad_rate", True, "Low-income students graduate"),
     "prestige": ("prestige_score", True, "Famous name"),
     "value_added": ("value_added", True, "Beats expectations"),
+    # Only used when the student gives an SAT/ACT score (see admission_fit()).
+    # Already 0-100 (Likely 100 / Match 60 / Reach 20), so it's not re-ranked.
+    "admission": ("admit_score", True, "Admission chances"),
 }
 
 # Colors for the factor bars (same order as FACTORS, colorblind-checked)
 FACTOR_COLORS = {
     "affordability": "#2a78d6", "earnings": "#eb6834", "graduation": "#1baf7a",
     "low_debt": "#8f5bd6", "mobility": "#d6a32a", "prestige": "#8a8984",
-    "value_added": "#e34948",
+    "value_added": "#e34948", "admission": "#0e9aa7",
 }
 
 # Slider starting points for the Explore page (0 = ignore, 10 = very important)
@@ -57,7 +60,7 @@ PRESETS = {
                          "mobility": 8, "prestige": 0, "value_added": 0},
     "Prestige only (like many rankings)": {**{k: 0 for k in FACTORS}, "prestige": 10},
     "Value added only": {**{k: 0 for k in FACTORS}, "value_added": 10},
-    "Equal weights": {k: 5 for k in FACTORS},
+    "Equal weights": {**{k: 5 for k in FACTORS}, "admission": 0},
 }
 
 # Quiz majors -> PCIP column (share of degrees in that field) and the 2-digit
@@ -218,6 +221,9 @@ def percentiles(df):
             out[key] = 50.0
             continue
         values = df[col]
+        if key == "admission":  # already a 0-100 score
+            out[key] = values.astype(float).fillna(50.0)
+            continue
         if key in groups and groups[key] in df:
             pct = values.groupby(df[groups[key]]).rank(pct=True, ascending=higher_is_better)
         else:
@@ -277,6 +283,17 @@ def filter_reasons(df, max_price=None, regions=None, sizes=None, settings=None, 
 VERY_SELECTIVE = 0.15  # admit rate below this = a reach for everyone
 SELECTIVE = 0.30       # admit rate below this = never "likely"
 
+# Minimum scores to count as a fit at all (not just a Reach):
+#  - colleges admitting under 20% need at least 1400 SAT / 31 ACT, even when they
+#    report no score range (e.g. test-blind Caltech)
+#  - every college that reports a range needs a score no more than 100 SAT /
+#    3 ACT points below its 25th percentile
+PRESTIGE_ADMIT = 0.20
+PRESTIGE_MIN = {"SAT": 1400, "ACT": 31}
+BELOW_25TH = {"SAT": 100, "ACT": 3}
+ADMIT_SCORES = {"Likely": 100.0, "Match": 60.0, "Reach": 20.0}
+SELECTIVE_REACH_SCORE = 40.0  # in range, but a Reach only because the college is so selective
+
 
 def admission_fit(df, sat=None, act=None):
     """Label each school Likely / Match / Reach from the student's test score.
@@ -289,7 +306,11 @@ def admission_fit(df, sat=None, act=None):
     The Scorecard has no GPA data, so GPA is not used here.
     This label does NOT change the match score.
 
-    Returns a DataFrame with "admit_fit" (Likely/Match/Reach/None) and "admit_note".
+    Returns a DataFrame with:
+      admit_fit    Likely / Match / Reach / None
+      admit_note   one line explaining it
+      admit_score  0-100 for the "Admission chances" factor (NaN without a score)
+      too_low      True if the score is below the college's minimum (see above)
     """
     if sat:
         score, lo, hi, test = sat, df.get("sat25"), df.get("sat75"), "SAT"
@@ -299,6 +320,7 @@ def admission_fit(df, sat=None, act=None):
         score, lo, hi, test = None, None, None, None
 
     fit = pd.Series(None, index=df.index, dtype=object)
+    in_range = pd.Series(False, index=df.index)  # score at or above the 25th percentile
     note = ("Admits " + (df["admit_rate"] * 100).round().astype("Int64").astype(str)
             + "% of applicants").where(df["admit_rate"].notna(), "")
 
@@ -310,6 +332,7 @@ def admission_fit(df, sat=None, act=None):
     if score is not None and lo is not None:
         has = lo.notna() & hi.notna()
         fit[has] = np.select([score < lo[has], score < hi[has]], ["Reach", "Match"], "Likely")
+        in_range = (score >= lo).fillna(False)
         note[has] = (f"Your {test} {score:,} vs. middle 50% admitted: "
                      + lo[has].astype(int).map("{:,}".format) + "–"
                      + hi[has].astype(int).map("{:,}".format))
@@ -317,7 +340,20 @@ def admission_fit(df, sat=None, act=None):
     # 3. Selectivity caps
     fit[(df["admit_rate"] < SELECTIVE) & (fit == "Likely")] = "Match"
     fit[df["admit_rate"] < VERY_SELECTIVE] = "Reach"
-    return pd.DataFrame({"admit_fit": fit, "admit_note": note})
+
+    # 4. Minimum score to be a fit at all
+    too_low = pd.Series(False, index=df.index)
+    if score is not None:
+        if lo is not None:
+            too_low |= (score < lo - BELOW_25TH[test]).fillna(False)
+        too_low |= (df["admit_rate"] < PRESTIGE_ADMIT) & (score < PRESTIGE_MIN[test])
+    if score is not None:
+        admit_score = fit.map(ADMIT_SCORES)
+        admit_score[(fit == "Reach") & in_range] = SELECTIVE_REACH_SCORE
+    else:
+        admit_score = pd.Series(float("nan"), index=df.index)
+    return pd.DataFrame({"admit_fit": fit, "admit_note": note,
+                         "admit_score": admit_score.astype(float), "too_low": too_low})
 
 
 # ---------------------------------------------------------------------------

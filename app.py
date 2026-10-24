@@ -84,6 +84,7 @@ def main():
 
     st.divider()
     st.caption(FOOTER)
+    st.caption("🌗 Light or dark mode: open the ⋮ menu (top right) and pick System, Light or Dark.")
 
 
 main()

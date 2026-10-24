@@ -57,7 +57,7 @@ def render(df, pcts, weights):
     c.metric(f"Schools that reach the top {TOP_N} in some run", ever_top)
 
     top = summary.sort_values("baseline_rank").head(TOP_N)
-    st.plotly_chart(rank_range_chart(top), width="stretch", theme=None)
+    st.plotly_chart(rank_range_chart(top), width="stretch", theme="streamlit")
 
     st.dataframe(
         top[["baseline_rank", "name", "state", "pct_runs_in_top", "best_rank", "worst_rank"]],

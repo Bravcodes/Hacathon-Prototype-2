@@ -37,7 +37,7 @@ def importance_chart(target, choice):
                  labels={"forest_importance": "Drop in accuracy when shuffled", "feature_label": ""})
     fig.update_traces(marker_color=plots.SINGLE)
     plots.style(fig, f"What predicts {choice.lower()} most")
-    st.plotly_chart(fig, width="stretch", theme=None)
+    st.plotly_chart(fig, width="stretch", theme="streamlit")
     st.caption("Bigger bar = the model gets worse when that input is scrambled. "
                "Who a college enrolls explains most of its results.")
 

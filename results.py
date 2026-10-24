@@ -28,14 +28,18 @@ def build(schools, fos, profile):
     score never depends on which filters you picked.
     """
     t = scoring.personalize(schools, profile["income"], profile["major"], fos)
+    # Admission chances first: it's one of the scored factors when there's a test score
+    t = t.join(scoring.admission_fit(t, profile.get("sat"), profile.get("act")))
     pcts = scoring.percentiles(t)
     pts = scoring.score(pcts, profile["weights"])
     t = t.join(pcts.add_prefix("pct_")).join(pts.add_prefix("pts_"))
     t["match"] = pts["score"]
-    t = t.join(scoring.admission_fit(t, profile.get("sat"), profile.get("act")))
     t["reasons"] = scoring.filter_reasons(
         t, profile["max_price"], profile["regions"], profile["sizes"],
         profile["settings"], profile["major"])
+    test = "SAT" if profile.get("sat") else "ACT"
+    t.loc[t["too_low"], "reasons"] = t.loc[t["too_low"], "reasons"].map(
+        lambda r: r + [f"usually admits students with a much higher {test}"])
     if profile.get("hide_reach"):
         reach = t["admit_fit"] == "Reach"
         t.loc[reach, "reasons"] = t.loc[reach, "reasons"].map(lambda r: r + ["is a reach"])
@@ -83,7 +87,8 @@ def admit_badge(row):
 def why_line(row, weights, major):
     """One sentence built from the two factors that earned the most points."""
     top = sorted(active_factors(weights), key=lambda k: row[f"pts_{k}"], reverse=True)[:2]
-    parts = [f"{LABELS[k].lower()} (top {max(1, 100 - row[f'pct_{k}']):.0f}% of colleges)"
+    parts = [f"admission chances ({row['admit_fit']})" if k == "admission"
+             else f"{LABELS[k].lower()} (top {max(1, 100 - row[f'pct_{k}']):.0f}% of colleges)"
              for k in top]
     text = "**Why it's a match:** strong on " + " and ".join(parts)
     if major and pd.notna(row.get("major_share")):
@@ -105,7 +110,7 @@ def factor_bar(row, weights):
         barmode="stack", height=130, margin=dict(l=0, r=0, t=0, b=0),
         xaxis=dict(range=[0, 100], title=None, gridcolor=plots.GRID, ticksuffix=" pts"),
         legend=dict(orientation="h", y=-0.45, x=0, font=dict(size=12), traceorder="normal"),
-        paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE, font=dict(color=plots.INK),
+        paper_bgcolor=plots.CLEAR, plot_bgcolor=plots.CLEAR,
     )
     return fig
 
@@ -116,10 +121,22 @@ def expected_line(row):
             f"**{actual:.0f}%** actually did.")
 
 
+ADMIT_DOTS = {"Likely": "🟢 Likely", "Match": "🟠 Match", "Reach": "🔴 Reach"}
+
+
+def card_title(i, row):
+    """One-line summary shown on a folded card."""
+    parts = [f"**#{i} · {row['name']}**", row["state"], f"Match {row['match']:.0f}/100",
+             f"{money(row['your_price'])}/yr"]
+    if row.get("admit_fit") in ADMIT_DOTS:
+        parts.append(ADMIT_DOTS[row["admit_fit"]])
+    return esc(" · ".join(parts))
+
+
 def card(row, profile, key):
     """The full match card for one school."""
     weights, major = profile["weights"], profile["major"]
-    with st.container(border=True):
+    with st.container(border=not key.startswith("top")):  # match cards sit in an expander
         head, score_col = st.columns([5, 1])
         with head:
             st.markdown(f"#### {row['name']}")
@@ -150,7 +167,7 @@ def card(row, profile, key):
 
         st.markdown(why_line(row, weights, major))
         st.plotly_chart(factor_bar(row, weights), key=f"bar-{key}-{row['unitid']}",
-                        width="stretch", theme=None, config={"displayModeBar": False})
+                        width="stretch", theme="streamlit", config={"displayModeBar": False})
         st.markdown(expected_line(row))
 
 
@@ -287,6 +304,7 @@ def render(schools, fos, go_to):
             go_to("quiz")
             st.rerun()
         n = st.slider("How many matches to show", 5, 10, 8)
+        open_all = st.toggle("Open all match cards", value=False)
         profile["hide_reach"] = st.checkbox(
             "Hide reach schools", help="Reach = your test score is below the middle 50% of "
             "admitted students, or the college admits under 15% of applicants.")
@@ -301,9 +319,10 @@ def render(schools, fos, go_to):
         no_matches(t)
     else:
         top = fit.head(n)
+        st.caption("Tap a college to open or fold its card.")
         for i, (_, row) in enumerate(top.iterrows(), start=1):
-            st.markdown(f"**#{i}**")
-            card(row, profile, key=f"top{i}")
+            with st.expander(card_title(i, row), expanded=open_all or i == 1):
+                card(row, profile, key=f"top{i}")
         st.divider()
         hidden_gems(fit, set(top["unitid"]), profile)
 
@@ -353,9 +372,11 @@ def how_it_works():
         "If you share an SAT or ACT score, we compare it with the middle 50% of students each "
         "college admitted: above that range is **Likely**, inside is **Match**, below is "
         "**Reach**. Colleges that admit under 15% of applicants are a Reach for everyone. "
-        "Without a score we go by admit rate only. This label never changes the match score, "
-        "and it ignores GPA, essays and activities, because colleges don't report those to "
-        "the federal data."
+        "With a score, **admission chances count double** in your match score, and a college "
+        "drops out of your matches if your score is more than 100 SAT (3 ACT) points below "
+        "its 25th percentile, or under 1400 SAT / 31 ACT for colleges that admit under 20%. "
+        "Without a score we go by admit rate only and it doesn't change the score. GPA, essays "
+        "and activities aren't included: colleges don't report them to the federal data."
     )
 
     st.subheader("What this score doesn't measure")

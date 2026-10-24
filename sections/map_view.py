@@ -21,8 +21,9 @@ def render(table):
         scope="usa", height=600,
     )
     fig.update_traces(marker=dict(line=dict(color=plots.SURFACE, width=0.5)))
-    fig.update_geos(bgcolor=plots.SURFACE, landcolor="#f0efec", subunitcolor="#c3c2b7")
+    fig.update_geos(bgcolor=plots.CLEAR, landcolor="rgba(128,128,128,0.15)",
+                    subunitcolor="rgba(128,128,128,0.5)", lakecolor=plots.CLEAR, showframe=False)
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_colorbar=dict(title="Score"),
-                      paper_bgcolor=plots.SURFACE)
-    st.plotly_chart(fig, width="stretch", theme=None)
+                      paper_bgcolor=plots.CLEAR)
+    st.plotly_chart(fig, width="stretch", theme="streamlit")
     st.caption("Schools outside the 50 states + DC (e.g. Puerto Rico) are not shown on this map.")

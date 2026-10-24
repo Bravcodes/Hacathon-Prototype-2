@@ -25,10 +25,16 @@ COLORS = {
 SINGLE = "#2a78d6"     # one-series charts
 POSITIVE = "#2a78d6"   # above expectations
 NEGATIVE = "#e34948"   # below expectations
-INK = "#0b0b0b"
-MUTED = "#52514e"
-GRID = "#e1e0d9"
-SURFACE = "#fcfcfb"
+# Charts must look right in light AND dark mode, and Streamlit doesn't rerun the
+# script when the viewer switches theme. So the app draws charts with
+# theme="streamlit" (text, grid and background follow the theme in the browser)
+# and only uses these theme-neutral colors itself.
+CLEAR = "rgba(0,0,0,0)"               # transparent backgrounds
+SURFACE = "rgba(128,128,128,0.35)"    # thin outline around dots / bar segments
+GRID = "rgba(128,128,128,0.25)"
+INK = None                            # None = let the theme pick the text color
+MUTED = None
+HIGHLIGHT = "#e34948"                 # ring around the highlighted school
 
 # Friendly names for chart labels
 LABELS = {
@@ -48,12 +54,13 @@ LABELS = {
 
 
 def style(fig, title):
-    """Apply the shared look: light background, thin gray grid, clear title."""
+    """Apply the shared look: transparent background, thin grid, clear title.
+    Text colors are left to the Streamlit theme (light or dark)."""
     fig.update_layout(
-        title=dict(text=title, x=0, font=dict(size=18, color=INK)),
-        font=dict(family="system-ui, -apple-system, Segoe UI, sans-serif", color=MUTED, size=13),
-        plot_bgcolor=SURFACE,
-        paper_bgcolor=SURFACE,
+        title=dict(text=title, x=0, font=dict(size=18)),
+        font=dict(family="system-ui, -apple-system, Segoe UI, sans-serif", size=13),
+        plot_bgcolor=CLEAR,
+        paper_bgcolor=CLEAR,
         margin=dict(l=60, r=30, t=70, b=60),
         legend=dict(title=None, orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"),
     )
@@ -69,11 +76,11 @@ def mark_school(fig, df, x, y, unitid=config.BU_UNITID, label="Boston University
         return fig
     fig.add_trace(go.Scatter(
         x=row[x], y=row[y], mode="markers", showlegend=False, hoverinfo="skip",
-        marker=dict(size=16, color="rgba(0,0,0,0)", line=dict(color=INK, width=2)),
+        marker=dict(size=16, color="rgba(0,0,0,0)", line=dict(color=HIGHLIGHT, width=2)),
     ))
     fig.add_annotation(
         x=row[x].iloc[0], y=row[y].iloc[0], text=f"<b>{label}</b>",
-        showarrow=True, arrowhead=0, ax=40, ay=-40, font=dict(color=INK),
+        showarrow=True, arrowhead=0, ax=40, ay=-40, arrowcolor=HIGHLIGHT,
     )
     return fig
 
@@ -103,7 +110,7 @@ def actual_vs_predicted(test_df, target):
     lo = min(test_df.min())
     hi = max(test_df.max())
     fig.add_shape(type="line", x0=lo, y0=lo, x1=hi, y1=hi,
-                  line=dict(color=MUTED, width=1, dash="dash"))
+                  line=dict(color=GRID, width=1, dash="dash"))
     name = LABELS.get(target, target)
     fig.update_layout(xaxis_title=f"Predicted {name.lower()}", yaxis_title=f"Actual {name.lower()}")
     if target == "grad_rate":  # show 0.25 as 25%

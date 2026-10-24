@@ -13,6 +13,8 @@ def weight_sliders():
 
     weights = {}
     for key, (_, _, label) in scoring.FACTORS.items():
+        if key == "admission":  # needs a student's test score (quiz only)
+            continue
         # Putting the preset in the key resets the sliders when the preset changes
         weights[key] = st.sidebar.slider(label, 0, 10, defaults[key], key=f"{preset}-{key}")
     return weights

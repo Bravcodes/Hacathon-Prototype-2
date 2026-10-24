@@ -48,7 +48,7 @@ def render(df):
     fig.update_traces(marker=dict(size=8, line=dict(color=plots.SURFACE, width=1)))
     plots.style(fig, f"Prestige vs. {y_label.lower()}")
     plots.mark_school(fig, df, "prestige_score", y, unitid=unitid, label=name)
-    st.plotly_chart(fig, width="stretch", theme=None)
+    st.plotly_chart(fig, width="stretch", theme="streamlit")
 
     corr = df["prestige_score"].corr(df[y], method="spearman")
     st.caption(f"Spearman correlation between prestige and this measure: **{corr:.2f}** "
