@@ -87,7 +87,7 @@ def admit_badge(row):
 def why_line(row, weights, major):
     """One sentence built from the two factors that earned the most points."""
     top = sorted(active_factors(weights), key=lambda k: row[f"pts_{k}"], reverse=True)[:2]
-    parts = [f"admission chances ({row['admit_fit']})" if k == "admission"
+    parts = [f"academic fit ({row['pct_admission']:.0f}/100 for your score)" if k == "admission"
              else f"{LABELS[k].lower()} (top {max(1, 100 - row[f'pct_{k}']):.0f}% of colleges)"
              for k in top]
     text = "**Why it's a match:** strong on " + " and ".join(parts)
@@ -271,6 +271,17 @@ def look_up(t, profile):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
+def balanced_top(fit, n):
+    """About 3/8 Reach, 3/8 Match, 2/8 Likely (best match score in each), topped up
+    with the next-best colleges if a group runs short; shown best-first."""
+    want = {"Reach": round(n * 3 / 8), "Match": round(n * 3 / 8)}
+    want["Likely"] = n - sum(want.values())
+    picks = [fit[fit["admit_fit"] == label].head(k) for label, k in want.items()]
+    chosen = pd.concat(picks)
+    rest = fit[~fit.index.isin(chosen.index)].head(n - len(chosen))
+    return pd.concat([chosen, rest]).sort_values("match", ascending=False)
+
+
 def current_profile():
     """Profile from the quiz, or neutral defaults if the quiz wasn't taken."""
     answers = st.session_state.get("answers")
@@ -305,6 +316,9 @@ def render(schools, fos, go_to):
             st.rerun()
         n = st.slider("How many matches to show", 5, 10, 8)
         open_all = st.toggle("Open all match cards", value=False)
+        balanced = st.toggle("Balanced list: mix of Reach, Match and Likely",
+                             help="Counselors usually suggest applying to a few of each. Shows about "
+                                  "3 Reach, 3 Match and 2 Likely colleges (best matches in each).")
         profile["hide_reach"] = st.checkbox(
             "Hide reach schools", help="Reach = your test score is below the middle 50% of "
             "admitted students, or the college admits under 15% of applicants.")
@@ -318,7 +332,12 @@ def render(schools, fos, go_to):
     if fit.empty:
         no_matches(t)
     else:
-        top = fit.head(n)
+        top = balanced_top(fit, n) if balanced else fit.head(n)
+        mix = top["admit_fit"].value_counts()
+        st.caption(f"Your list: {mix.get('Reach', 0)} Reach · {mix.get('Match', 0)} Match · "
+                   f"{mix.get('Likely', 0)} Likely"
+                   + ("" if balanced or mix.get("Reach", 0) < len(top) - 1 else
+                      " — mostly reaches. Try **Balanced list** in the sidebar."))
         st.caption("Tap a college to open or fold its card.")
         for i, (_, row) in enumerate(top.iterrows(), start=1):
             with st.expander(card_title(i, row), expanded=open_all or i == 1):
@@ -372,9 +391,14 @@ def how_it_works():
         "If you share an SAT or ACT score, we compare it with the middle 50% of students each "
         "college admitted: above that range is **Likely**, inside is **Match**, below is "
         "**Reach**. Colleges that admit under 15% of applicants are a Reach for everyone. "
-        "With a score, **admission chances count double** in your match score, and a college "
-        "drops out of your matches if your score is more than 100 SAT (3 ACT) points below "
-        "its 25th percentile, or under 1400 SAT / 31 ACT for colleges that admit under 20%. "
+        "With a score, **academic fit counts double** in your match score: it's highest when your "
+        "score is inside a college's typical range (or a bit above), and lower when you're far "
+        "below *or far above* it. Far above is called undermatching: strong students often "
+        "enroll where they're far above the typical student, and graduate less often. For "
+        "colleges that report no scores (like Caltech or the UCs) we **estimate** the typical "
+        "SAT with a model trained on colleges that do (it's off by about 50 points on average). "
+        "A college drops out of your matches if your score is more than 100 SAT (3 ACT) points "
+        "below its 25th percentile, or under 1400 SAT / 31 ACT for colleges that admit under 20%. "
         "Without a score we go by admit rate only and it doesn't change the score. GPA, essays "
         "and activities aren't included: colleges don't report them to the federal data."
     )

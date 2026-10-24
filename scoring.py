@@ -42,9 +42,9 @@ FACTORS = {
     "mobility": ("pell_grad_rate", True, "Low-income students graduate"),
     "prestige": ("prestige_score", True, "Famous name"),
     "value_added": ("value_added", True, "Beats expectations"),
-    # Only used when the student gives an SAT/ACT score (see admission_fit()).
-    # Already 0-100 (Likely 100 / Match 60 / Reach 20), so it's not re-ranked.
-    "admission": ("admit_score", True, "Admission chances"),
+    # Only used when the student gives an SAT/ACT score (see academic_fit()).
+    # Already 0-100 (100 = the student's score fits the college's typical range).
+    "admission": ("admit_score", True, "Academic fit"),
 }
 
 # Colors for the factor bars (same order as FACTORS, colorblind-checked)
@@ -111,6 +111,66 @@ def load_schools():
         df = df.merge(pd.read_csv(extra_path), on="unitid", how="left")
     df["region"] = df["state"].map(STATE_TO_REGION).fillna("Other (territories)")
     df["setting"] = df["locale"].map(locale_to_setting) if "locale" in df else None
+    if "sat25" in df:
+        df = add_typical_sat(df)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Typical SAT of each college (for "Academic fit")
+# ---------------------------------------------------------------------------
+# Official ACT -> SAT concordance (ACT composite -> SAT total), rounded
+ACT_TO_SAT = {36: 1590, 35: 1540, 34: 1500, 33: 1460, 32: 1430, 31: 1400, 30: 1370,
+              29: 1340, 28: 1310, 27: 1280, 26: 1240, 25: 1210, 24: 1180, 23: 1140,
+              22: 1110, 21: 1080, 20: 1040, 19: 1010, 18: 970, 17: 930, 16: 890,
+              15: 850, 14: 800, 13: 760, 12: 710, 11: 670, 10: 630, 9: 590}
+# Inputs for estimating a college's typical SAT when it reports none. Not the
+# prestige score: it's partly built from SAT, so it would leak the answer.
+SAT_FEATURES = ["admit_rate", "pct_pell", "pct_first_gen", "grad_rate",
+                "spend_per_student", "fac_salary_monthly", "earnings_10yr"]
+SAT_ESTIMATE = {}  # filled by add_typical_sat(): cross-validated accuracy
+
+
+def act_to_sat(act):
+    return act.map(lambda a: ACT_TO_SAT.get(int(a)) if pd.notna(a) else np.nan)
+
+
+def add_typical_sat(df):
+    """sat_lo / sat_hi: the middle 50% of admitted students on the SAT scale.
+
+    Uses, in order: the reported SAT range; the reported ACT range converted
+    to SAT; the reported average SAT +/- half the usual range width; and
+    otherwise an ESTIMATE from a random forest trained on colleges that report
+    one (accuracy checked with 5-fold cross-validation, stored in SAT_ESTIMATE).
+    """
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.model_selection import cross_val_predict
+
+    df = df.copy()
+    lo, hi = df["sat25"].copy(), df["sat75"].copy()
+    source = pd.Series(np.where(lo.notna() & hi.notna(), "reported", None), index=df.index, dtype=object)
+
+    act_lo, act_hi = act_to_sat(df["act25"]), act_to_sat(df["act75"])
+    use = lo.isna() & act_lo.notna() & act_hi.notna()
+    lo[use], hi[use], source[use] = act_lo[use], act_hi[use], "reported (ACT)"
+
+    half = float((df["sat75"] - df["sat25"]).median() / 2)
+    use = lo.isna() & df["sat_avg"].notna()
+    lo[use], hi[use], source[use] = df["sat_avg"][use] - half, df["sat_avg"][use] + half, "reported average"
+
+    mid = (lo + hi) / 2
+    X = df[SAT_FEATURES].fillna(df[SAT_FEATURES].median())
+    train = mid.notna()
+    forest = RandomForestRegressor(n_estimators=300, min_samples_leaf=5, random_state=42, n_jobs=-1)
+    cv = cross_val_predict(forest, X[train], mid[train], cv=5)
+    SAT_ESTIMATE.update(mae=float(np.abs(cv - mid[train]).mean()),
+                        r2=float(1 - ((cv - mid[train]) ** 2).sum() / ((mid[train] - mid[train].mean()) ** 2).sum()))
+    use = lo.isna()
+    if use.any():
+        est = forest.fit(X[train], mid[train]).predict(X[use])
+        lo[use], hi[use], source[use] = est - half, est + half, "estimated"
+    df["sat_lo"], df["sat_hi"] = lo.clip(400, 1600).round(), hi.clip(400, 1600).round()
+    df["sat_source"] = source
     return df
 
 
@@ -291,8 +351,24 @@ SELECTIVE = 0.30       # admit rate below this = never "likely"
 PRESTIGE_ADMIT = 0.20
 PRESTIGE_MIN = {"SAT": 1400, "ACT": 31}
 BELOW_25TH = {"SAT": 100, "ACT": 3}
-ADMIT_SCORES = {"Likely": 100.0, "Match": 60.0, "Reach": 20.0}
-SELECTIVE_REACH_SCORE = 40.0  # in range, but a Reach only because the college is so selective
+# Academic fit: 100 when the score is inside the college's middle 50% or up to
+# ABOVE_OK points above it; then it drops by these many points per SAT point.
+ABOVE_OK = 50
+PER_POINT_ABOVE = 0.25  # "undermatching": far above the typical student
+PER_POINT_BELOW = 0.5   # below the typical student
+
+
+def academic_fit(sat_score, lo, hi):
+    """0-100: how well an SAT score fits a college's middle-50% range [lo, hi].
+
+    Inside the range (or a little above) = 100. Far above = lower: research on
+    "undermatching" finds strong students, especially from low-income families,
+    often enroll where they're far above the typical student, and graduate less
+    often. Below the range = lower, faster.
+    """
+    above = (sat_score - (hi + ABOVE_OK)).clip(lower=0)
+    below = (lo - sat_score).clip(lower=0)
+    return (100 - PER_POINT_ABOVE * above - PER_POINT_BELOW * below).clip(0, 100)
 
 
 def admission_fit(df, sat=None, act=None):
@@ -304,12 +380,13 @@ def admission_fit(df, sat=None, act=None):
     schools that report no range) we fall back to the admit rate alone.
 
     The Scorecard has no GPA data, so GPA is not used here.
-    This label does NOT change the match score.
+    The label itself doesn't change the match score; admit_score (academic fit,
+    see academic_fit()) does, when the student gives a score.
 
     Returns a DataFrame with:
       admit_fit    Likely / Match / Reach / None
       admit_note   one line explaining it
-      admit_score  0-100 for the "Admission chances" factor (NaN without a score)
+      admit_score  0-100 academic fit for the scored factor (NaN without a score)
       too_low      True if the score is below the college's minimum (see above)
     """
     if sat:
@@ -347,11 +424,18 @@ def admission_fit(df, sat=None, act=None):
         if lo is not None:
             too_low |= (score < lo - BELOW_25TH[test]).fillna(False)
         too_low |= (df["admit_rate"] < PRESTIGE_ADMIT) & (score < PRESTIGE_MIN[test])
-    if score is not None:
-        admit_score = fit.map(ADMIT_SCORES)
-        admit_score[(fit == "Reach") & in_range] = SELECTIVE_REACH_SCORE
-    else:
-        admit_score = pd.Series(float("nan"), index=df.index)
+    admit_score = pd.Series(float("nan"), index=df.index)
+    if score is not None and "sat_lo" in df:
+        sat_score = score if test == "SAT" else ACT_TO_SAT.get(int(score), np.nan)
+        admit_score = academic_fit(sat_score, df["sat_lo"], df["sat_hi"])
+        # Colleges that report no range: say what we compared with
+        est = df["sat_source"].isin(["estimated", "reported average"]) & (lo.isna() if lo is not None else True)
+        typical = ((df["sat_lo"] + df["sat_hi"]) / 2).round(-1)
+        label = df["sat_source"].map({"estimated": "estimated", "reported average": "average"})
+        note[est] = (f"Your {test} {score:,} · typical SAT here ≈ "
+                     + typical[est].astype("Int64").map("{:,}".format) + " (" + label[est] + ")")
+        # Estimated colleges far above the student aren't a fit either (wider margin: it's an estimate)
+        too_low |= (est & (sat_score < df["sat_lo"] - BELOW_25TH["SAT"] - 50)).fillna(False)
     return pd.DataFrame({"admit_fit": fit, "admit_note": note,
                          "admit_score": admit_score.astype(float), "too_low": too_low})
 

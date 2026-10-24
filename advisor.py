@@ -126,9 +126,12 @@ def background_context(schools):
   (% low-income, % first-gen, SAT, admit rate) and its resources. Actual minus predicted. {acc}
 - Likely / Match / Reach: the student's SAT/ACT vs. the middle 50% of admitted students
   (below = Reach, inside = Match, above = Likely). Admit rate under 15% = Reach for everyone.
-  With a score, "Admission chances" counts double in the match score, and a college is not a
-  fit if the score is >100 SAT (3 ACT) points below its 25th percentile, or under 1400 SAT /
-  31 ACT when it admits under 20%.
+  With a score, "Academic fit" counts double: 100 when the score is inside the college's
+  middle 50% (or a bit above), lower when far below or far above ("undermatching"). For
+  colleges that report no scores the typical SAT is estimated by a model (about 50 points off on
+  average). Not a fit if the score is >100 SAT (3 ACT) points below the 25th percentile, or
+  under 1400 SAT / 31 ACT when the college admits under 20%. "Balanced list" in the sidebar
+  shows a mix of about 3 Reach, 3 Match, 2 Likely.
 - Key findings: prestige goes with raw graduation rates (correlation {rho_raw:.2f}) but barely
   with beating expectations ({rho_va:.2f}), so prestige mostly reflects who a college admits.
   Biggest graduation over-performers: {over_txt}.
