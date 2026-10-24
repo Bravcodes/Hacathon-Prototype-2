@@ -30,11 +30,14 @@ FOS_CSV = config.RAW_DIR / "Most-Recent-Cohorts-Field-of-Study.csv"
 #   1 = $0-30k, 2 = $30,001-48k, 3 = $48,001-75k, 4 = $75,001-110k, 5 = $110k+
 NPT_COLS = [f"NPT4{i}_{kind}" for i in range(1, 6) for kind in ("PUB", "PRIV")]
 PCIP_COLS = sorted({m["pcip"] for m in scoring.MAJORS.values() if m["pcip"]})
-EXTRA_COLS = ["UNITID", "CITY", "LOCALE"] + NPT_COLS + PCIP_COLS
+# SAT{VR,MT}{25,75} = 25th/75th percentile of admitted students' SAT reading and
+# math scores; ACTCM{25,75} = same for the ACT composite. (No GPA in the Scorecard.)
+TEST_COLS = ["SATVR25", "SATVR75", "SATMT25", "SATMT75", "ACTCM25", "ACTCM75"]
+EXTRA_COLS = ["UNITID", "CITY", "LOCALE"] + NPT_COLS + PCIP_COLS + TEST_COLS
 
 
 def build_extra(unitids):
-    """Income-bracket net prices, share of degrees by major, and city/locale."""
+    """Income-bracket net prices, share of degrees by major, city/locale, test ranges."""
     raw = pd.read_csv(config.RAW_CSV, usecols=EXTRA_COLS,
                       na_values=config.NULL_MARKERS, low_memory=False)
     raw = raw[raw["UNITID"].isin(unitids)]
@@ -44,6 +47,11 @@ def build_extra(unitids):
     # Each school fills only the public OR the private column, so combine them
     for i in range(1, 6):
         out[f"net_price_inc{i}"] = raw[f"NPT4{i}_PUB"].fillna(raw[f"NPT4{i}_PRIV"])
+    # Total SAT range = reading + math. (Adding two 25th percentiles only
+    # approximates the 25th percentile of the total, which is fine for a label.)
+    out["sat25"] = raw["SATVR25"] + raw["SATMT25"]
+    out["sat75"] = raw["SATVR75"] + raw["SATMT75"]
+    out["act25"], out["act75"] = raw["ACTCM25"], raw["ACTCM75"]
     return out
 
 

@@ -31,9 +31,13 @@ def build(schools, fos, profile):
     pts = scoring.score(pcts, profile["weights"])
     t = t.join(pcts.add_prefix("pct_")).join(pts.add_prefix("pts_"))
     t["match"] = pts["score"]
+    t = t.join(scoring.admission_fit(t, profile.get("sat"), profile.get("act")))
     t["reasons"] = scoring.filter_reasons(
         t, profile["max_price"], profile["regions"], profile["sizes"],
         profile["settings"], profile["major"])
+    if profile.get("hide_reach"):
+        reach = t["admit_fit"] == "Reach"
+        t.loc[reach, "reasons"] = t.loc[reach, "reasons"].map(lambda r: r + ["is a reach"])
     t["fits"] = t["reasons"].str.len() == 0
     return t.sort_values("match", ascending=False)
 
@@ -55,14 +59,24 @@ def esc(text):
 
 
 def beats_badge(row):
-    """Green badge if the school graduates more students than predicted."""
+    """Green badge (as markdown) if the school graduates more students than predicted."""
     gap = row["residual_grad_rate"] * 100
     if gap >= 2:
-        st.badge(f"Graduation beats expectations by +{gap:.0f} pts", icon=":material/trending_up:", color="green")
-    elif gap <= -2:
-        st.badge(f"Graduation {-gap:.0f} pts below expectations", color="gray")
-    else:
-        st.badge("Graduation about as expected", color="gray")
+        return f":green-badge[:material/trending_up: Graduation beats expectations by +{gap:.0f} pts]"
+    if gap <= -2:
+        return f":gray-badge[Graduation {-gap:.0f} pts below expectations]"
+    return ":gray-badge[Graduation about as expected]"
+
+
+ADMIT_COLORS = {"Likely": "blue", "Match": "orange", "Reach": "red"}
+
+
+def admit_badge(row):
+    """Likely / Match / Reach badge (as markdown), or "" if we can't tell."""
+    fit = row.get("admit_fit")
+    if fit not in ADMIT_COLORS:
+        return ""
+    return f":{ADMIT_COLORS[fit]}-badge[:material/school: {fit}]"
 
 
 def why_line(row, weights, major):
@@ -111,7 +125,9 @@ def card(row, profile, key):
             size = "" if pd.isna(row["undergrads"]) else f" · {row['undergrads']:,.0f} undergrads"
             city = f"{row['city']}, " if isinstance(row.get("city"), str) else ""
             st.caption(f"{city}{row['state']} · {row['control_label']}{size}")
-            beats_badge(row)
+            st.markdown(f"{admit_badge(row)} {beats_badge(row)}")
+            if row.get("admit_note"):
+                st.caption(row["admit_note"])
         score_col.metric("Match", f"{row['match']:.0f}/100")
 
         if row["reasons"]:
@@ -178,7 +194,7 @@ def hidden_gems(fit, top_ids, profile):
         with col, st.container(border=True):
             st.markdown(f"**{row['name']}**")
             st.caption(f"{row['state']} · admits {row['admit_rate'] * 100:.0f}%")
-            beats_badge(row)
+            st.markdown(f"{admit_badge(row)} {beats_badge(row)}")
             st.write(esc(f"Match {row['match']:.0f}/100 · {money(row['your_price'])}/yr"))
             st.caption(f"Predicted {row['predicted_grad_rate'] * 100:.0f}% would graduate; "
                        f"{row['grad_rate'] * 100:.0f}% did.")
@@ -255,6 +271,9 @@ def render(schools, fos, go_to):
         a = st.session_state.get("answers") or {}
         for q in quiz.QUESTIONS:
             value = a.get(q["key"])
+            if q["key"] == "scores":
+                test = f"{a.get('test')} {a.get('test_score')}" if a.get("test_score") else "no test score"
+                value = f"GPA {a['gpa']:.1f}, {test}" if a.get("gpa") else test
             if q["key"] == "max_price" and value is not None:
                 value = "No limit" if value >= quiz.NO_LIMIT else f"${value:,.0f}/yr"
             if isinstance(value, list):
@@ -265,6 +284,9 @@ def render(schools, fos, go_to):
             go_to("quiz")
             st.rerun()
         n = st.slider("How many matches to show", 5, 10, 8)
+        profile["hide_reach"] = st.checkbox(
+            "Hide reach schools", help="Reach = your test score is below the middle 50% of "
+            "admitted students, or the college admits under 15% of applicants.")
 
     t = build(schools, fos, profile)
     fit = t[t["fits"]]
@@ -322,6 +344,16 @@ def how_it_works():
             f"The model is right within about {s.loc[('grad_rate', 'forest'), 'mae'] * 100:.0f} "
             "percentage points on graduation rate for colleges it never saw "
             f"(R² = {s.loc[('grad_rate', 'forest'), 'r2']:.2f}). Details are in **Explore the data**.")
+
+    st.subheader("Likely, Match or Reach?")
+    st.write(
+        "If you share an SAT or ACT score, we compare it with the middle 50% of students each "
+        "college admitted: above that range is **Likely**, inside is **Match**, below is "
+        "**Reach**. Colleges that admit under 15% of applicants are a Reach for everyone. "
+        "Without a score we go by admit rate only. This label never changes the match score, "
+        "and it ignores GPA, essays and activities, because colleges don't report those to "
+        "the federal data."
+    )
 
     st.subheader("What this score doesn't measure")
     st.markdown(

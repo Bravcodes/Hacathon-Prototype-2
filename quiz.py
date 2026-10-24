@@ -16,12 +16,16 @@ import scoring
 #   one    = pick one option (big buttons)
 #   many   = pick up to `max` options
 #   slider = dollar slider
+#   scores = GPA box + SAT/ACT choice + score box
 # ---------------------------------------------------------------------------
 NO_LIMIT = 90000  # slider's top value means "no limit"
 
 QUESTIONS = [
     {"key": "major", "kind": "one", "title": "What do you want to study?",
      "options": list(scoring.MAJORS)},
+    {"key": "scores", "kind": "scores", "title": "How are your grades and test scores?",
+     "note": "🔒 Private, like everything here. We use your SAT or ACT to label colleges "
+             "Likely, Match or Reach. Skipping the test is fine: many colleges are test-optional."},
     {"key": "income", "kind": "one", "title": "About how much does your family earn per year?",
      "note": "🔒 This stays private: it's never saved or sent anywhere. We only use it to "
              "look up what families like yours actually pay at each college.",
@@ -41,8 +45,13 @@ QUESTIONS = [
                  "Helps students like me succeed"]},
 ]
 
-DEFAULTS = {"major": None, "income": None, "max_price": 35000, "region": None,
-            "size": None, "setting": None, "priorities": []}
+DEFAULTS = {"major": None, "gpa": None, "test": None, "test_score": None, "income": None,
+            "max_price": 35000, "region": None, "size": None, "setting": None, "priorities": []}
+
+# Test choices -> (score box label, min, max, step, starting value)
+TESTS = {"SAT": ("Total SAT score", 400, 1600, 10, 1200),
+         "ACT": ("ACT composite score", 1, 36, 1, 24),
+         "No score": None}
 
 # Quiz priority -> scoring factor
 PRIORITY_FACTORS = {
@@ -80,13 +89,16 @@ def answers_to_profile(a):
         "regions": None if a["region"] in (None, "Anywhere") else [a["region"]],
         "sizes": None if a["size"] in (None, "Any size") else [a["size"]],
         "settings": None if a["setting"] in (None, "Any") else [a["setting"]],
+        "sat": a["test_score"] if a["test"] == "SAT" else None,
+        "act": a["test_score"] if a["test"] == "ACT" else None,
+        "gpa": a["gpa"],  # shown back to the student only: the Scorecard has no GPA data
         "weights": weights,
     }
 
 
 def init_state():
     st.session_state.setdefault("quiz_step", 0)
-    st.session_state.setdefault("answers", dict(DEFAULTS))
+    st.session_state["answers"] = {**DEFAULTS, **st.session_state.get("answers", {})}
 
 
 def option_buttons(q, answers):
@@ -122,9 +134,37 @@ def price_slider(q, answers):
                 unsafe_allow_html=True)
 
 
+def score_inputs(answers):
+    """GPA (optional), then pick SAT / ACT / no score, then type the score."""
+    gpa = st.number_input("GPA (optional, unweighted, out of 4.0)", min_value=0.0, max_value=4.0,
+                          value=answers["gpa"], step=0.1, format="%.1f", placeholder="e.g. 3.4")
+    answers["gpa"] = gpa
+    st.caption("Colleges don't report GPAs to the federal data we use, so your GPA isn't part "
+               "of the Likely / Match / Reach label. Use it with your counselor.")
+
+    st.markdown("**Which test score do you have?**")
+    labels = {"SAT": "SAT", "ACT": "ACT", "No score": "Haven't taken / not sending"}
+    for col, (test, label) in zip(st.columns(3), labels.items()):
+        selected = answers["test"] == test
+        if col.button(("✓ " if selected else "") + label, key=f"q-test-{test}", width="stretch",
+                      type="primary" if selected else "secondary"):
+            if answers["test"] != test:
+                answers["test"], answers["test_score"] = test, None
+            st.rerun()
+
+    spec = TESTS.get(answers["test"])
+    if spec:
+        label, lo, hi, step, start = spec
+        answers["test_score"] = int(st.number_input(
+            label, min_value=lo, max_value=hi, step=step,
+            value=answers["test_score"] or start, key=f"score-{answers['test']}"))
+
+
 def is_answered(q, answers):
     if q["kind"] == "one":
         return answers[q["key"]] is not None
+    if q["kind"] == "scores":
+        return answers["test"] is not None
     return True  # slider always has a value; priorities are optional
 
 
@@ -144,6 +184,8 @@ def render(go_to):
 
         if q["kind"] == "slider":
             price_slider(q, answers)
+        elif q["kind"] == "scores":
+            score_inputs(answers)
         else:
             option_buttons(q, answers)
         if st.session_state.pop("quiz_warning", None):

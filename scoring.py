@@ -272,6 +272,55 @@ def filter_reasons(df, max_price=None, regions=None, sizes=None, settings=None, 
 
 
 # ---------------------------------------------------------------------------
+# Admission fit: Likely / Match / Reach
+# ---------------------------------------------------------------------------
+VERY_SELECTIVE = 0.15  # admit rate below this = a reach for everyone
+SELECTIVE = 0.30       # admit rate below this = never "likely"
+
+
+def admission_fit(df, sat=None, act=None):
+    """Label each school Likely / Match / Reach from the student's test score.
+
+    Compares the score with the middle 50% (25th-75th percentile) of admitted
+    students: below = Reach, inside = Match, above = Likely. Very selective
+    schools are a Reach for everyone. Without a score (or for test-optional
+    schools that report no range) we fall back to the admit rate alone.
+
+    The Scorecard has no GPA data, so GPA is not used here.
+    This label does NOT change the match score.
+
+    Returns a DataFrame with "admit_fit" (Likely/Match/Reach/None) and "admit_note".
+    """
+    if sat:
+        score, lo, hi, test = sat, df.get("sat25"), df.get("sat75"), "SAT"
+    elif act:
+        score, lo, hi, test = act, df.get("act25"), df.get("act75"), "ACT"
+    else:
+        score, lo, hi, test = None, None, None, None
+
+    fit = pd.Series(None, index=df.index, dtype=object)
+    note = ("Admits " + (df["admit_rate"] * 100).round().astype("Int64").astype(str)
+            + "% of applicants").where(df["admit_rate"].notna(), "")
+
+    # 1. Admit rate only (no score, or school reports no range)
+    fit[df["admit_rate"] >= 0.75] = "Likely"
+    fit[df["admit_rate"] < SELECTIVE] = "Reach"
+
+    # 2. Score vs. the school's middle 50%, where we have both
+    if score is not None and lo is not None:
+        has = lo.notna() & hi.notna()
+        fit[has] = np.select([score < lo[has], score < hi[has]], ["Reach", "Match"], "Likely")
+        note[has] = (f"Your {test} {score:,} vs. middle 50% admitted: "
+                     + lo[has].astype(int).map("{:,}".format) + "–"
+                     + hi[has].astype(int).map("{:,}".format))
+
+    # 3. Selectivity caps
+    fit[(df["admit_rate"] < SELECTIVE) & (fit == "Likely")] = "Match"
+    fit[df["admit_rate"] < VERY_SELECTIVE] = "Reach"
+    return pd.DataFrame({"admit_fit": fit, "admit_note": note})
+
+
+# ---------------------------------------------------------------------------
 # Fragility (used by the Explore page)
 # ---------------------------------------------------------------------------
 def fragility(pcts, weights, n_runs=500, wiggle=0.2, top_n=20, seed=0):
