@@ -5,7 +5,7 @@ to test from a notebook or the command line.
 How a school's match score works:
   1. personalize(): pick the right number for THIS student, e.g. the net price
      for their family income bracket and earnings for their intended major.
-  2. percentiles(): turn each factor into a 0-100 percentile among ALL 1,405
+  2. percentiles(): turn each factor into a 0-100 percentile among ALL
      colleges (higher = better; price and debt are flipped). Using all colleges
      means a school's score doesn't change when you filter the list.
   3. score(): points = percentile x weight / total weight. The points add up
@@ -37,7 +37,7 @@ V2_DATA = config.DATA_DIR
 FACTORS = {
     "affordability": ("your_price", False, "Affordability"),
     "earnings": ("your_earnings", True, "Earnings"),
-    "graduation": ("grad_rate", True, "Graduation"),
+    "graduation": ("your_grad", True, "Graduation"),
     "low_debt": ("your_debt", False, "Low debt"),
     "mobility": ("pell_grad_rate", True, "Low-income students graduate"),
     "prestige": ("prestige_score", True, "Famous name"),
@@ -103,12 +103,31 @@ def locale_to_setting(code):
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
+# Mostly-online colleges are left out of the app. The Scorecard only flags
+# online-ONLY colleges (DISTANCEONLY), so we also drop very large colleges with
+# very low instructional spending (online megauniversities like SNHU, Grand
+# Canyon, Liberty: $1,600-4,000 per student vs. $9,000+ at campus universities;
+# the closest campus college, Georgia Gwinnett, spends $4,730) and online
+# campuses named as such (e.g. "Penn State World Campus").
+ONLINE_NAME = r"Online|World Campus|Global Campus|National & Global"
+ONLINE_MIN_UNDERGRADS, ONLINE_MAX_SPEND = 10000, 4500
+
+
+def is_mostly_online(df):
+    flagged = df["distance_only"].eq(1) if "distance_only" in df else False
+    megaonline = (df["undergrads"] > ONLINE_MIN_UNDERGRADS) & (df["spend_per_student"] < ONLINE_MAX_SPEND)
+    named = df["name"].str.contains(ONLINE_NAME, regex=True)
+    return flagged | megaonline | named
+
+
 def load_schools():
-    """data/results.csv (read-only) + v2's extra columns, one row per school."""
+    """data/results.csv (read-only) + v2's extra columns, one row per school,
+    without mostly-online colleges."""
     df = pd.read_csv(config.RESULTS_CSV)
     extra_path = V2_DATA / "extra.csv"
     if extra_path.exists():
         df = df.merge(pd.read_csv(extra_path), on="unitid", how="left")
+    df = df[~is_mostly_online(df)].reset_index(drop=True)
     df["region"] = df["state"].map(STATE_TO_REGION).fillna("Other (territories)")
     df["setting"] = df["locale"].map(locale_to_setting) if "locale" in df else None
     if "sat25" in df:
@@ -194,6 +213,28 @@ VA_FEATURE_LABELS = {
 }
 
 
+def cv_scores(df):
+    """Accuracy of both models with 5-fold cross-validation: every college is
+    predicted once by a model that never saw it. More stable than one 80/20
+    split (which moves a lot depending on which colleges land in the test set).
+    Returns target, model, r2 (mean), r2_sd (spread across folds), mae."""
+    from sklearn.model_selection import KFold, cross_validate
+
+    rows = []
+    folds = KFold(n_splits=5, shuffle=True, random_state=overperformers.RANDOM_SEED)
+    for target in overperformers.TARGETS:
+        for name, model in overperformers.make_models().items():
+            r = cross_validate(model, df[overperformers.FEATURES], df[target], cv=folds,
+                               scoring=("r2", "neg_mean_absolute_error"))
+            rows.append({"target": target, "model": name, "r2": r["test_r2"].mean(),
+                         "r2_sd": r["test_r2"].std(), "mae": -r["test_neg_mean_absolute_error"].mean(),
+                         "n_schools": len(df)})
+    return pd.DataFrame(rows)
+
+
+SHRINK_K = 250  # cohort of 250 -> half weight; 100 -> 0.29; 2,500 -> 0.91
+
+
 def fit_value_added(df):
     """Predict grad rate (C150_4) and 10-yr earnings (MD_EARN_WNE_P10).
 
@@ -207,10 +248,15 @@ def fit_value_added(df):
              "scores": accuracy table, "importance": importance table}
     """
     old = [c for c in df if c.startswith(("predicted_", "residual_"))]
-    out, scores, importance, _ = overperformers.run(df.drop(columns=old))
+    out, _, importance, _ = overperformers.run(df.drop(columns=old))
+    scores = cv_scores(out)
 
-    # One combined number: average z-score of the two residuals, as 0-100
-    z = sum((out[c] - out[c].mean()) / out[c].std()
+    # One combined number: average z-score of the two residuals, as 0-100.
+    # Small colleges' residuals are noisy (a few students more or less swing
+    # the rate), so each residual is shrunk toward 0 ("as expected") by
+    # n / (n + SHRINK_K), where n is the graduation cohort size.
+    weight = out["grad_cohort_size"] / (out["grad_cohort_size"] + SHRINK_K)
+    z = sum((out[c] * weight - (out[c] * weight).mean()) / (out[c] * weight).std()
             for c in ["residual_grad_rate", "residual_earnings_10yr"]) / 2
     out["value_added"] = z.rank(pct=True) * 100
     importance["feature_label"] = importance["feature"].map(VA_FEATURE_LABELS)
@@ -246,6 +292,15 @@ def personalize(df, income=None, major=None, fos=None):
         has = df[col].notna()
         df.loc[has, "your_price"] = df.loc[has, col]
         df.loc[has, "price_source"] = f"for families earning {INCOME_BRACKETS[income]}"
+
+    # Graduation chance: for lower-income families (Pell-grant range, under
+    # $48k) use the graduation rate of Pell students where the college reports it
+    df["your_grad"] = df["grad_rate"]
+    df["grad_source"] = "all students"
+    if income in (1, 2):
+        has = df["pell_grad_rate"].notna()
+        df.loc[has, "your_grad"] = df.loc[has, "pell_grad_rate"]
+        df.loc[has, "grad_source"] = "low-income (Pell grant) students"
 
     # Earnings and debt for your major
     df["your_earnings"] = df["earnings_10yr"]
@@ -321,7 +376,7 @@ def filter_reasons(df, max_price=None, regions=None, sizes=None, settings=None, 
             reasons[i] = reasons[i] + [text]
 
     if max_price is not None:
-        flag(df["your_price"] > max_price, f"costs more than ${max_price:,.0f}/yr")
+        flag(df["your_price"] > max_price, f"costs more than ${max_price:,.0f} per year")
     if regions:
         flag(~df["region"].isin(regions), "outside your region")
     if sizes:
@@ -434,8 +489,12 @@ def admission_fit(df, sat=None, act=None):
         label = df["sat_source"].map({"estimated": "estimated", "reported average": "average"})
         note[est] = (f"Your {test} {score:,} · typical SAT here ≈ "
                      + typical[est].astype("Int64").map("{:,}".format) + " (" + label[est] + ")")
-        # Estimated colleges far above the student aren't a fit either (wider margin: it's an estimate)
-        too_low |= (est & (sat_score < df["sat_lo"] - BELOW_25TH["SAT"] - 50)).fillna(False)
+        # Minimum on the SAT scale for EVERY college (also those reporting only an
+        # ACT range): 100 SAT points below the 25th percentile, or 150 when the
+        # range is estimated (wider margin, since it's an estimate)
+        margin = np.where(df["sat_source"].isin(["estimated", "reported average"]),
+                          BELOW_25TH["SAT"] + 50, BELOW_25TH["SAT"])
+        too_low |= (sat_score < df["sat_lo"] - margin).fillna(False)
     return pd.DataFrame({"admit_fit": fit, "admit_note": note,
                          "admit_score": admit_score.astype(float), "too_low": too_low})
 

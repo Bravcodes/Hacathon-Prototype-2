@@ -38,7 +38,7 @@ FOOTER = ("A starting point, not advice. Talk to your counselor. "
 
 @st.cache_data(show_spinner="Loading colleges...")
 def load_schools():
-    """All 1,405 schools + value-added columns (model is trained once, cached)."""
+    """All schools (no mostly-online ones) + value-added columns (trained once, cached)."""
     return scoring.get_value_added(scoring.load_schools())["schools"]
 
 
@@ -80,7 +80,7 @@ def main():
     elif page == "explore":
         explore.render(schools)
     else:
-        results.how_it_works()
+        results.how_it_works(schools)
 
     st.divider()
     st.caption(FOOTER)

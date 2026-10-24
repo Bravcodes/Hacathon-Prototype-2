@@ -115,7 +115,12 @@ def background_context(schools):
 
     return f"""BACKGROUND (how this app works; use it to explain things):
 - Data: U.S. Dept. of Education College Scorecard; {n:,} public and private nonprofit
-  four-year colleges. No commercial rankings.
+  four-year colleges. No commercial rankings. Online-only and mostly-online universities
+  (e.g. Southern New Hampshire, Western Governors, Liberty) are left out.
+- Graduation for lower-income families (under $48k) uses the college's graduation rate for
+  low-income (Pell grant) students where reported. "Beats expectations" is shrunk toward
+  "as expected" for colleges with small graduating classes (noisy). Model accuracy below is
+  from 5-fold cross-validation.
 - Match score (0-100): each factor (affordability, earnings, graduation, low debt, famous name,
   beats expectations) is scored 0-100 vs. all {n:,} colleges; the 2 priorities count double;
   points add up to the score. Filters choose which colleges show but never change a score.

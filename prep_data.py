@@ -33,7 +33,7 @@ PCIP_COLS = sorted({m["pcip"] for m in scoring.MAJORS.values() if m["pcip"]})
 # SAT{VR,MT}{25,75} = 25th/75th percentile of admitted students' SAT reading and
 # math scores; ACTCM{25,75} = same for the ACT composite. (No GPA in the Scorecard.)
 TEST_COLS = ["SATVR25", "SATVR75", "SATMT25", "SATMT75", "ACTCM25", "ACTCM75"]
-EXTRA_COLS = ["UNITID", "CITY", "LOCALE"] + NPT_COLS + PCIP_COLS + TEST_COLS
+EXTRA_COLS = ["UNITID", "CITY", "LOCALE", "DISTANCEONLY"] + NPT_COLS + PCIP_COLS + TEST_COLS
 
 
 def build_extra(unitids):
@@ -42,8 +42,9 @@ def build_extra(unitids):
                       na_values=config.NULL_MARKERS, low_memory=False)
     raw = raw[raw["UNITID"].isin(unitids)]
 
-    out = raw[["UNITID", "CITY", "LOCALE"] + PCIP_COLS].rename(
-        columns={"UNITID": "unitid", "CITY": "city", "LOCALE": "locale"})
+    out = raw[["UNITID", "CITY", "LOCALE", "DISTANCEONLY"] + PCIP_COLS].rename(
+        columns={"UNITID": "unitid", "CITY": "city", "LOCALE": "locale",
+                 "DISTANCEONLY": "distance_only"})  # 1 = online-only college
     # Each school fills only the public OR the private column, so combine them
     for i in range(1, 6):
         out[f"net_price_inc{i}"] = raw[f"NPT4{i}_PUB"].fillna(raw[f"NPT4{i}_PRIV"])

@@ -46,14 +46,16 @@ def model_scores_table():
     scores = load_model_scores()
     if scores is None:
         return
-    st.markdown("**How accurate is the model?** (tested on 20% of schools it never saw)")
+    st.markdown("**How accurate is the model?** (5-fold cross-validation: every college is "
+                "predicted once by a model that never saw it)")
     scores = scores.replace({"grad_rate": "Graduation rate", "earnings_10yr": "Earnings",
                              "linear": "Linear regression", "forest": "Random forest"})
     st.dataframe(
-        scores[["target", "model", "r2", "mae"]],
+        scores[["target", "model", "r2", "r2_sd", "mae"]],
         column_config={
             "target": "Predicting", "model": "Model",
             "r2": st.column_config.NumberColumn("R²", format="%.2f"),
+            "r2_sd": st.column_config.NumberColumn("± across folds", format="%.2f"),
             "mae": st.column_config.NumberColumn("Mean abs. error", format="%.3f"),
         },
         hide_index=True,

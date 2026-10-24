@@ -117,8 +117,8 @@ def factor_bar(row, weights):
 
 def expected_line(row):
     pred, actual = row["predicted_grad_rate"] * 100, row["grad_rate"] * 100
-    return (f"Based on the students it enrolls, we predicted **{pred:.0f}%** would graduate. "
-            f"**{actual:.0f}%** actually did.")
+    return (f"Based on the students it enrolls, we predicted **{pred:.0f}%** of all its students "
+            f"would graduate. **{actual:.0f}%** actually did.")
 
 
 ADMIT_DOTS = {"Likely": "🟢 Likely", "Match": "🟠 Match", "Reach": "🔴 Reach"}
@@ -127,7 +127,7 @@ ADMIT_DOTS = {"Likely": "🟢 Likely", "Match": "🟠 Match", "Reach": "🔴 Rea
 def card_title(i, row):
     """One-line summary shown on a folded card."""
     parts = [f"**#{i} · {row['name']}**", row["state"], f"Match {row['match']:.0f}/100",
-             f"{money(row['your_price'])}/yr"]
+             f"{money(row['your_price'])} per year"]
     if row.get("admit_fit") in ADMIT_DOTS:
         parts.append(ADMIT_DOTS[row["admit_fit"]])
     return esc(" · ".join(parts))
@@ -156,8 +156,8 @@ def card(row, profile, key):
             st.metric("Your price per year", money(row["your_price"]))
             st.caption(esc(f"{row['price_source'].capitalize()}. Sticker price: {money(row['sticker_price'])}"))
         with cols[1]:
-            st.metric("Graduation chance", f"{row['grad_rate'] * 100:.0f}%")
-            st.caption("Finish within 6 years")
+            st.metric("Graduation chance", f"{row['your_grad'] * 100:.0f}%")
+            st.caption(f"Finish within 6 years ({row['grad_source']})")
         with cols[2]:
             st.metric("Typical earnings", money(row["your_earnings"]))
             st.caption(row["earn_source"].capitalize())
@@ -213,7 +213,7 @@ def hidden_gems(fit, top_ids, profile):
             st.markdown(f"**{row['name']}**")
             st.caption(f"{row['state']} · admits {row['admit_rate'] * 100:.0f}%")
             st.markdown(f"{admit_badge(row)} {beats_badge(row)}")
-            st.write(esc(f"Match {row['match']:.0f}/100 · {money(row['your_price'])}/yr"))
+            st.write(esc(f"Match {row['match']:.0f}/100 · {money(row['your_price'])} per year"))
             st.caption(f"Predicted {row['predicted_grad_rate'] * 100:.0f}% would graduate; "
                        f"{row['grad_rate'] * 100:.0f}% did.")
 
@@ -306,7 +306,7 @@ def render(schools, fos, go_to):
                 test = f"{a.get('test')} {a.get('test_score')}" if a.get("test_score") else "no test score"
                 value = f"GPA {a['gpa']:.1f}, {test}" if a.get("gpa") else test
             if q["key"] == "max_price" and value is not None:
-                value = "No limit" if value >= quiz.NO_LIMIT else f"${value:,.0f}/yr"
+                value = "No limit" if value >= quiz.NO_LIMIT else f"${value:,.0f} per year"
             if isinstance(value, list):
                 value = ", ".join(value) or "none"
             st.caption(esc(f"**{q['title']}** {value or '—'}"))
@@ -327,6 +327,12 @@ def render(schools, fos, go_to):
     fit = t[t["fits"]]
     st.write(f"**{len(fit):,}** of {len(t):,} colleges fit your answers. "
              "Here are your best matches, scored out of 100.")
+    test_blocks = t["too_low"].sum() if "too_low" in t else 0
+    if test_blocks > len(t) / 2:
+        st.info(f"Your test score rules out {test_blocks:,} colleges. Many colleges are "
+                "**test-optional**: you can apply without sending a score. To see those options, "
+                "change your answer to \"Haven't taken / not sending\" (**Change my answers** "
+                "in the sidebar).")
     bu_notice(t, n)
 
     if fit.empty:
@@ -351,12 +357,13 @@ def render(schools, fos, go_to):
     look_up(t, profile)
 
 
-def how_it_works():
+def how_it_works(schools):
     st.title("How it works")
     steps = [
         ("1. Score each factor 0–100",
          "For price, graduation, earnings, debt, name recognition and \"beats expectations\", "
-         "every college gets a score from 0 to 100 compared with all 1,405 four-year colleges. "
+         f"every college gets a score from 0 to 100 compared with all {len(schools):,} four-year "
+         "colleges (online-only and mostly-online universities are left out). "
          "80 means it does better than 80% of them."),
         ("2. Your answers set the weights",
          "Each factor counts once. Your two priorities count double. Price and earnings use "
