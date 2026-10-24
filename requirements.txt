@@ -4,3 +4,4 @@ numpy>=1.26
 scikit-learn>=1.5
 plotly>=5.22
 streamlit>=1.50
+anthropic>=2.0        # AI advisor (optional: needs ANTHROPIC_API_KEY)

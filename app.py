@@ -7,7 +7,7 @@ Run from the project folder (old app still runs with: streamlit run app/app.py):
 This file only loads data, switches pages and draws the nav + footer.
 Each page lives in its own file:
     quiz.py      landing page (quiz)
-    game.py      "Rankings or Reality?" higher-or-lower game
+    advisor.py   AI advisor chat (instead of the quiz, then in the results sidebar)
     results.py   match cards, hidden gems, compare, how it works
     explore.py   the original prototype's tabs ("Explore the data")
     scoring.py   all the math (no page layout)
@@ -22,15 +22,15 @@ V2_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(V2_DIR))  # so v2's own modules win over any same-named ones
 
 import config  # noqa: E402
+import advisor  # noqa: E402
 import explore  # noqa: E402
-import game  # noqa: E402
 import quiz  # noqa: E402
 import results  # noqa: E402
 import scoring  # noqa: E402
 
 st.set_page_config(page_title="Rankings vs. Reality", page_icon="🎓", layout="wide")
 
-PAGES = {"game": "🎮 Play", "quiz": "Take the quiz", "results": "Your matches",
+PAGES = {"quiz": "Take the quiz", "results": "Your matches",
          "explore": "Explore the data", "how": "How it works"}
 FOOTER = ("A starting point, not advice. Talk to your counselor. "
           "Data: U.S. Dept. of Education College Scorecard.")
@@ -71,10 +71,10 @@ def main():
     nav()
     schools, fos = load_schools(), load_field_of_study()
     page = st.session_state["page"]
-    if page == "game":
-        game.render(schools, go_to)
-    elif page == "quiz":
+    if page == "quiz":
         quiz.render(go_to)
+    elif page == "chat":
+        advisor.chat_page(schools, fos, go_to)
     elif page == "results":
         results.render(schools, fos, go_to)
     elif page == "explore":

@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import advisor
 import config
 import plots
 import quiz
@@ -267,6 +268,8 @@ def render(schools, fos, go_to):
     profile = current_profile()
 
     with st.sidebar:
+        advisor.sidebar_chat(schools, fos)
+        st.divider()
         st.header("Your answers")
         a = st.session_state.get("answers") or {}
         for q in quiz.QUESTIONS:
