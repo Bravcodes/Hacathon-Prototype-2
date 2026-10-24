@@ -142,12 +142,30 @@ def background_context(schools):
 # ---------------------------------------------------------------------------
 # Client and tools
 # ---------------------------------------------------------------------------
-def api_key():
+KEY_NAMES = ("groq_api_key", "groq_key", "groq")
+
+
+def secret_names():
+    """Names (never values) of the secrets this app can see, for the help message."""
     try:
-        key = st.secrets.get("GROQ_API_KEY")
-    except Exception:  # no secrets.toml at all
-        key = None
-    return key or os.environ.get("GROQ_API_KEY")
+        return list(st.secrets.keys())
+    except Exception:  # no secrets file / no Secrets set on Streamlit Cloud
+        return []
+
+
+def api_key():
+    """The Groq key from Streamlit secrets or the environment. Forgiving about
+    the exact name (GROQ_API_KEY, groq_api_key, GROQ_KEY) and also accepts a
+    [groq] section with api_key = "..."."""
+    key = None
+    for name in secret_names():
+        value = st.secrets[name]
+        if isinstance(value, str) and name.lower() in KEY_NAMES:
+            key = value
+        elif hasattr(value, "get") and name.lower() == "groq":
+            key = value.get("api_key") or value.get("GROQ_API_KEY")
+    key = key or os.environ.get("GROQ_API_KEY")
+    return key.strip().strip('"') if key else None
 
 
 @st.cache_resource
@@ -447,9 +465,13 @@ def show_history():
 
 
 def no_key_message():
-    st.info("The AI advisor needs a Groq API key. Add `GROQ_API_KEY = \"...\"` to "
-            "`.streamlit/secrets.toml` (locally) or to the app's **Secrets** on Streamlit "
-            "Cloud, then reload. The quiz works without it.")
+    names = secret_names()
+    seen = ", ".join(f"`{n}`" for n in names) if names else "none"
+    st.info("The AI advisor needs a Groq API key. On Streamlit Cloud: **⋮ → Settings → "
+            "Secrets**, paste one line `GROQ_API_KEY = \"gsk_...\"` (with the quotes), "
+            "**Save**, then reload this page. Locally: put the same line in "
+            "`.streamlit/secrets.toml`. The quiz works without it.\n\n"
+            f"Secrets this app can see right now: {seen}")
 
 
 def chat_page(schools, fos, go_to):
