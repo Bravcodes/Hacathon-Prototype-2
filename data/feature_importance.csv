@@ -1,0 +1,15 @@
+target,feature,forest_importance,linear_coef,feature_label
+grad_rate,sat_avg,0.36718768751498104,0.051887582193910015,Average SAT
+grad_rate,pct_pell,0.1307166833267392,-0.03900551220981575,% low-income (Pell) students
+grad_rate,pct_first_gen,0.08150026890334106,-0.032010786956956416,% first-generation students
+grad_rate,spend_per_student,0.07515292826578872,0.02161719756502884,Instructional spending per student
+grad_rate,admit_rate,0.04722838417399624,-0.020151926341239534,Admit rate
+grad_rate,net_price,0.020485086947732878,0.009678395750232648,Average net price
+grad_rate,sat_missing,0.0037283197671301727,-0.02463533205197629,SAT not reported
+earnings_10yr,sat_avg,0.35445600918928805,5528.9448784342685,Average SAT
+earnings_10yr,pct_pell,0.19386183385190509,-4373.5564319134,% low-income (Pell) students
+earnings_10yr,spend_per_student,0.05449710158954948,4620.030250224285,Instructional spending per student
+earnings_10yr,pct_first_gen,0.03705076379768839,1027.637040884758,% first-generation students
+earnings_10yr,net_price,0.032477637585097564,1179.5383608639988,Average net price
+earnings_10yr,admit_rate,0.014355243119448524,-244.72379420812968,Admit rate
+earnings_10yr,sat_missing,0.0004652111205351361,-2034.9586429131095,SAT not reported

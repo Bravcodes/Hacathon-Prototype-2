@@ -1,0 +1,6 @@
+# v2 needs a newer Streamlit than the prototype (st.badge, button width="stretch")
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+plotly>=5.22
+streamlit>=1.50
