@@ -8,8 +8,12 @@ A quiz-first version of the prototype. The original app in `app/` is unchanged.
 .venv/bin/streamlit run app/app.py                     # original (port 8501)
 ```
 
-v2 reads `data/results.csv` (read-only) plus the small files in `v2/data/`.
-Those are already committed. Rebuild them only if the raw Scorecard data changes:
+v2 is self-contained: everything it needs is inside this folder, so it also works
+as the root of its own repo (e.g. on Streamlit Cloud, main file `app.py`).
+`config.py`, `plots.py` and `overperformers.py` are copies of the files in `src/`,
+and `data/results.csv` is a copy of the analysis output. Rerun `src/analysis.py` and
+copy `data/results.csv` here again if the analysis changes. The small files in
+`data/` are already committed. Rebuild them only if the raw Scorecard data changes:
 `.venv/bin/python v2/prep_data.py` (needs the raw Scorecard folder).
 
 ## Who edits what (one file each = no merge conflicts)

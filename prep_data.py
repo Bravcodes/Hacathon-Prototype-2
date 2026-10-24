@@ -6,7 +6,7 @@ files and save them as two SMALL csvs in v2/data/ (so teammates don't need the
 Run once from the project folder (needs the raw Scorecard folder):
     .venv/bin/python v2/prep_data.py
 
-Reads (never writes):  data/results.csv, College_Scorecard_Raw_Data_*/...
+Reads (never writes):  v2/data/results.csv, College_Scorecard_Raw_Data_*/...
 Writes:                v2/data/extra.csv, v2/data/field_of_study.csv,
                        v2/data/model_scores.csv, v2/data/feature_importance.csv
 """
@@ -18,7 +18,6 @@ import pandas as pd
 
 V2_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(V2_DIR))
-sys.path.insert(0, str(V2_DIR.parent / "src"))
 
 import config  # noqa: E402
 import scoring  # noqa: E402

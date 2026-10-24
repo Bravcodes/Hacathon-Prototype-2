@@ -18,8 +18,7 @@ from pathlib import Path
 import streamlit as st
 
 V2_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(V2_DIR))                 # v2 modules (scoring, quiz, ...)
-sys.path.insert(1, str(V2_DIR.parent / "src"))  # shared config.py, plots.py (read-only)
+sys.path.insert(0, str(V2_DIR))  # so v2's own modules win over any same-named ones
 
 import config  # noqa: E402
 import explore  # noqa: E402
@@ -63,7 +62,7 @@ def nav():
 
 def main():
     if not config.RESULTS_CSV.exists():
-        st.error("data/results.csv not found. Run `src/clean.py` then `src/analysis.py` first.")
+        st.error("v2/data/results.csv not found. Copy it from data/results.csv.")
         st.stop()
     st.session_state.setdefault("page", "quiz")
 

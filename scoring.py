@@ -24,12 +24,12 @@ import pandas as pd
 import streamlit as st
 
 V2_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(V2_DIR.parent / "src"))
+sys.path.insert(0, str(V2_DIR))
 
-import config  # noqa: E402  (shared paths/column names, read-only)
-import overperformers  # noqa: E402  (shared model code, read-only)
+import config  # noqa: E402  (v2's copy of paths/column names)
+import overperformers  # noqa: E402  (v2's copy of the model code)
 
-V2_DATA = V2_DIR / "data"
+V2_DATA = config.DATA_DIR
 
 # ---------------------------------------------------------------------------
 # Factors: key -> (column made by personalize(), higher is better?, UI label)
@@ -134,7 +134,7 @@ VA_FEATURE_LABELS = {
 def fit_value_added(df):
     """Predict grad rate (C150_4) and 10-yr earnings (MD_EARN_WNE_P10).
 
-    Uses the shared src/overperformers.py code:
+    Uses overperformers.py (copied from src/ so the models match the analysis):
       - linear regression + random forest, 80/20 train/test split -> R², MAE
       - permutation importance on the test set
       - every school's prediction comes from 5-fold cross-validation, so no
