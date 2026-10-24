@@ -207,4 +207,5 @@ def render(go_to):
             st.rerun()
 
         if step == 0:
-            st.caption("Just want to look around? Use **Explore the data** at the top.")
+            st.caption("Not ready yet? Warm up with **🎮 Play** (a 2-minute game), or look "
+                       "around in **Explore the data**.")
