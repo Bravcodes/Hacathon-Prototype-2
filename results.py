@@ -130,6 +130,11 @@ def card_title(i, row):
              f"{money(row['your_price'])} per year"]
     if row.get("admit_fit") in ADMIT_DOTS:
         parts.append(ADMIT_DOTS[row["admit_fit"]])
+    if row.get("added") == "prestige":
+        parts.append("⭐ added for your strong scores")
+    elif row["reasons"]:
+        parts.append("⚠️ " + ("over your budget" if all(r.startswith(PRICE_REASON) for r in row["reasons"])
+                             else "doesn't fit every answer"))
     return esc(" · ".join(parts))
 
 
@@ -192,7 +197,7 @@ def bu_notice(t, n_shown):
 
 def no_matches(t):
     """Explain which answer removes the most schools."""
-    st.warning("No colleges fit all of your answers. Try loosening one of these:")
+    st.write("Answers that rule out the most colleges (try loosening one):")
     counts = pd.Series([r for rs in t["reasons"] for r in rs]).value_counts()
     for reason, n in counts.items():
         st.write(esc(f"- {n:,} colleges {reason}"))
@@ -282,6 +287,87 @@ def balanced_top(fit, n):
     return pd.concat([chosen, rest]).sort_values("match", ascending=False)
 
 
+# Extreme answers should never leave the page empty
+PRICE_REASON = "costs more than"
+PRESTIGE_TOP = 75                     # top 75 on our prestige score, or ...
+PRESTIGE_ADMIT = 0.15                 # ... admits under 15% of applicants
+STRONG_SCORE = {"sat": 1450, "act": 33}
+
+
+def is_prestigious(t):
+    return (t["prestige_score"].rank(ascending=False) <= PRESTIGE_TOP) | (t["admit_rate"] < PRESTIGE_ADMIT)
+
+
+def score_gap(t, profile):
+    """SAT points the student's score is below each college's 25th percentile
+    (0 if at or above it, or if the student gave no score)."""
+    sat = profile.get("sat") or scoring.ACT_TO_SAT.get(int(profile.get("act") or 0))
+    if not sat or "sat_lo" not in t:
+        return pd.Series(0.0, index=t.index)
+    return (t["sat_lo"] - sat).clip(lower=0).fillna(0)
+
+
+def strong_scorer(profile):
+    return any((profile.get(k) or 0) >= v for k, v in STRONG_SCORE.items())
+
+
+def pick_list(t, n, profile, balanced=False):
+    """The colleges to show as match cards, plus notes explaining any fallback.
+
+    1. Colleges that fit every answer, best match first (or a balanced mix).
+    2. Too few? If the ONLY problem is price, add the most affordable colleges
+       that match everything else (cheapest first). Otherwise add the colleges
+       that miss the fewest answers. Their cards say what doesn't fit.
+    3. Strong SAT/ACT: make sure at least one prestigious college is in the
+       list (the best-matching one that fits, else the closest one).
+    Returns (list DataFrame, list of notes). The "added" column says why a
+    college that doesn't fit every answer is in the list: "budget", "closest"
+    or "prestige" ("" for colleges that fit).
+    """
+    notes = []
+    fit = t[t["fits"]]
+    top = (balanced_top(fit, n) if balanced else fit.head(n)).assign(added="")
+
+    if len(top) < n:
+        rest = t[~t["fits"]]
+        only_price = rest[rest["reasons"].map(lambda r: all(x.startswith(PRICE_REASON) for x in r))]
+        if len(only_price):
+            extra = only_price.nsmallest(n - len(top), "your_price").assign(added="budget")
+            notes.append(("Nothing else is within your budget, so here are the **most affordable** "
+                          "colleges that match everything else you chose (cheapest first)."
+                          if len(top) else
+                          "No college is within your budget for your family's income, so here are "
+                          "the **most affordable** colleges that match everything else you chose "
+                          "(cheapest first). Check each college's net price calculator: aid can "
+                          "be higher than these averages."))
+        else:
+            # Fewest unmet answers first; among ties, the smallest gap between the
+            # student's score and the college's typical range, then the best match
+            order = rest.assign(_miss=rest["reasons"].str.len(),
+                                _gap=score_gap(rest, profile)).sort_values(
+                ["_miss", "_gap", "match"], ascending=[True, True, False])
+            extra = order.head(n - len(top)).drop(columns=["_miss", "_gap"]).assign(added="closest")
+            notes.append("No college fits every answer, so here are the ones that come **closest**. "
+                         "Each card says what doesn't fit.")
+        top = pd.concat([top, extra])
+
+    if strong_scorer(profile) and not is_prestigious(t).loc[top.index].any():
+        pres = t[is_prestigious(t)]
+        best = pres[pres["fits"]].head(1)
+        if best.empty:
+            closest = pres["reasons"].str.len().min()
+            best = pres[pres["reasons"].str.len() == closest].head(1)
+            notes.append("With your scores you're competitive at top colleges, so we added the "
+                         "closest **prestigious** college even though it doesn't fit every answer.")
+        if len(top) >= n:
+            top = top.iloc[: n - 1]
+        top = pd.concat([top, best.assign(added="" if bool(best["fits"].iloc[0]) else "prestige")])
+        # Fitting colleges first (best match first), then the added ones in order
+        top = pd.concat([top[top["added"] == ""].sort_values("match", ascending=False),
+                         top[top["added"] != ""]])
+    return top, notes
+
+
 def current_profile():
     """Profile from the quiz, or neutral defaults if the quiz wasn't taken."""
     answers = st.session_state.get("answers")
@@ -325,8 +411,12 @@ def render(schools, fos, go_to):
 
     t = build(schools, fos, profile)
     fit = t[t["fits"]]
-    st.write(f"**{len(fit):,}** of {len(t):,} colleges fit your answers. "
-             "Here are your best matches, scored out of 100.")
+    if len(fit):
+        st.write(f"**{len(fit):,}** of {len(t):,} colleges fit your answers. "
+                 "Here are your best matches, scored out of 100.")
+    else:
+        st.write(f"None of the {len(t):,} colleges fits every answer, so we show the closest "
+                 "options instead (scored out of 100).")
     test_blocks = t["too_low"].sum() if "too_low" in t else 0
     if test_blocks > len(t) / 2:
         st.info(f"Your test score rules out {test_blocks:,} colleges. Many colleges are "
@@ -335,10 +425,13 @@ def render(schools, fos, go_to):
                 "in the sidebar).")
     bu_notice(t, n)
 
+    top, notes = pick_list(t, n, profile, balanced)
+    for note in notes:
+        st.info(esc(note))
     if fit.empty:
-        no_matches(t)
-    else:
-        top = balanced_top(fit, n) if balanced else fit.head(n)
+        with st.expander("What's ruling colleges out?"):
+            no_matches(t)
+    if not top.empty:
         mix = top["admit_fit"].value_counts()
         st.caption(f"Your list: {mix.get('Reach', 0)} Reach · {mix.get('Match', 0)} Match · "
                    f"{mix.get('Likely', 0)} Likely"
@@ -352,7 +445,7 @@ def render(schools, fos, go_to):
         hidden_gems(fit, set(top["unitid"]), profile)
 
     st.divider()
-    compare(t, fit, profile)
+    compare(t, top, profile)
     st.divider()
     look_up(t, profile)
 

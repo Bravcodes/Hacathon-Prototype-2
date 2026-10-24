@@ -377,6 +377,7 @@ def filter_reasons(df, max_price=None, regions=None, sizes=None, settings=None, 
 
     if max_price is not None:
         flag(df["your_price"] > max_price, f"costs more than ${max_price:,.0f} per year")
+        flag(df["your_price"].isna(), "has no price data")  # unknown price can't pass a budget
     if regions:
         flag(~df["region"].isin(regions), "outside your region")
     if sizes:

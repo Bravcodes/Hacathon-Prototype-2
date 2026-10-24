@@ -268,18 +268,23 @@ def student_context(schools, fos):
     """Live context: the student's answers and top 5 matches, rebuilt every message."""
     if not st.session_state.get("quiz_done"):
         return "STUDENT CONTEXT: no answers saved yet (phase 1)."
+    import results  # same list the page shows (with budget / closest fallbacks)
+
     t = current_table(schools, fos)
     fit = t[t["fits"]]
-    top = [{k: s.get(k) for k in ("name", "state", "match_score", "your_price_per_yr",
-                                  "grad_rate_pct", "earnings", "earnings_basis", "median_debt",
-                                  "admission")}
-           for s in (school_facts(r) for _, r in fit.head(5).iterrows())]
+    answers = {**quiz.DEFAULTS, "max_price": quiz.NO_LIMIT, **st.session_state.get("answers", {})}
+    shown, notes = results.pick_list(t, 5, quiz.answers_to_profile(answers))
+    top = [{k: s.get(k) for k in ("name", "state", "match_score", "fits_answers",
+                                  "doesnt_fit_because", "your_price_per_yr", "grad_rate_pct",
+                                  "earnings", "earnings_basis", "median_debt", "admission")}
+           for s in (school_facts(r) for _, r in shown.iterrows())]
     weights = current_weights()
-    for s, (_, r) in zip(top[:3], fit.head(3).iterrows()):
+    for s, (_, r) in zip(top[:3], shown.head(3).iterrows()):
         s["points_by_factor"] = school_facts(r, weights)["points_by_factor"]
     return ("STUDENT CONTEXT (phase 2, the student is looking at their match cards):\n"
             + json.dumps({"answers": st.session_state.get("answers", {}),
-                          "colleges_that_fit": int(len(fit)), "top_5_matches": top}))
+                          "colleges_that_fit": int(len(fit)), "notes": notes,
+                          "top_5_shown": top}))
 
 
 def validate_answers(a):
@@ -323,12 +328,16 @@ def run_tool(name, args, schools, fos):
 
     t = current_table(schools, fos)
     if name == "get_my_matches":
+        import results
         fit = t[t["fits"]]
+        answers = {**quiz.DEFAULTS, "max_price": quiz.NO_LIMIT, **st.session_state.get("answers", {})}
+        top, notes = results.pick_list(t, 5, quiz.answers_to_profile(answers))
         return json.dumps({
             "answers_saved": bool(st.session_state.get("quiz_done")),
             "answers": st.session_state.get("answers", {}),
             "colleges_that_fit": int(len(fit)),
-            "top_matches": [school_facts(r, current_weights()) for _, r in fit.head(5).iterrows()],
+            "notes": notes,  # e.g. nothing within budget -> most affordable shown instead
+            "top_matches": [school_facts(r, current_weights()) for _, r in top.iterrows()],
         }), False
 
     if name == "lookup_school":
